@@ -1,0 +1,732 @@
+
+---
+title: "Firefighters Fight What?"
+subtitle: "An Analysis of San Francisco Fire Department"
+author: "Apple Li, Derek Fu, Kai Hung, Lucia Lu"
+date: "04/25/2021"
+header-includes:
+   - \usepackage[default]{sourcesanspro}
+   - \usepackage{setspace}\onehalfspacing
+   - \usepackage[T1]{fontenc}
+mainfont: SourceSansPro
+output: pdf_document
+fontsize: 10pt
+geometry: margin=1in
+---
+
+```{r echo=FALSE, include = FALSE}
+library(knitr)
+library(RSQLite)
+library(stringr)
+library(dplyr)
+library(ggplot2)
+library(tidyverse)
+library(ggmap)
+library(readr)
+library(lubridate)
+library(grid)
+library(gridBase)
+library(viridis)
+library(jtools)
+library(kableExtra)
+```
+
+\maketitle
+\tableofcontents
+\newpage
+
+\section{Introduction}
+
+\subsection{Purpose and Questions}
+
+To a typical resident of the United States, the Fire Department is often viewed as a government faction primarily responsible for dealing with structural fire, wildfires, fire rescue, and other emergency situations with the word “fire” attached. However, what do the Fire Department really deal with on a daily basis? How rapidly do they respond to various types of emergencies? In addition, the Police were subjected to various allegations regarding discrimination against racial minorities in the past year. Does our nation’s very own Fire Department carry an underlying level of discrimination in their response rate for high minority populated regions? 
+
+\subsection{Main Dataset: Fire Department Calls for Service}
+
+Our main dataset is the Fire Department Calls for Service from the official San Francisco government open source data website (link: https://data.sfgov.org/Public-Safety/Fire-Department-Calls-for-Service/nuek-vuh3). The dataset contains all fire unit response to calls in the San Francisco area from the year 2000 to 2018, amounting to over 5 million calls. For each call, the dataset records 
+
+\begin{itemize}
+  \item CallType - The type of call the incident falls under
+  \item ReceivedDtTm - Date and time call received at the 911 Dispatch Center
+  \item ResponseDtTm - Date and time this unit acknowledges the dispatch and records that the unit is en route to the location of the call.
+  \item Priority - Classification of the Call (2 if non-emergency, 3 if emergency)
+  \item CallTypeGroup - Classification into four main groups: Fire, Alarm, Potential Life Threatening and Non Life Threatening.
+  \item UnitType - Classification for the unit responding to the incident
+  \item City - City in which the incident is reported
+  \item Zip Code of Incident - Zip code in which the incident is reported
+\end{itemize}
+
+\subsection{Auxillary Dataset: Racial Distribution by Zip Code in San Francisco}
+
+We obtained this data using web scraping from the website ZipDataMaps (link: https://www.zipdatamaps.com/). The collected data is then used to build a data frame with 27 rows and 10 variables. Each row represents the racial distribution in a distinct zip code area. All racial distribution data are from 2014. The variables are zip code and the percentage of each ethnicity group within a region. We computed our own variable "minority" by aggregating all non-white ethnicity group percentages. 
+
+\subsection{Research Direction}
+
+In our analysis, we hope to identify the incidents that Fire Departments actually deal with most frequently, explore whether the pattern of incidents differ by month or location, and explore potential latency in areas populated mostly by underrepresented minority groups. 
+
+\newpage 
+
+\section{Data Investigation and Visualization}
+
+```{r include=FALSE}
+dcon <- dbConnect(SQLite(), dbname = "~/Desktop/Rice/STAT 405/R Project/data/SF_fire_department.sqlite")
+
+dbListTables(dcon)
+dbListFields(dcon, "Fire_Department_Calls_for_Service")
+
+res <- dbSendQuery(conn = dcon, "
+SELECT ReceivedDtTm, ResponseDtTm, CallType, Priority
+FROM Fire_Department_Calls_for_Service;
+")
+df <- dbFetch(res, -1)
+dbClearResult(res)
+head(df)
+str(df)
+#dbDisconnect(dcon)
+```
+
+\subsection{Call Type Analysis}
+
+\subsubsection{Distribution of Call Types}
+
+A common myth for the fire department is that they primarily deal with fire incidents since the general public’s impression with the fire department lies in their reputation as “firefighters”. With this analysis, we hope to verify whether the myth is true and obtain a better picture for the types of calls the Fire Departments actually respond to. 
+
+```{r, fig.align='center', fig.height=12, fig.width=10, include=FALSE}
+# How frequent is each call type? 
+
+barPlot_calltype_dist <- ggplot(data = df) + 
+  aes(x = CallType, fill = CallType) + 
+  xlab("Call Types") + 
+  ylab("Frequency") + 
+  ggtitle("Type of Calls Received") + 
+  theme_bw() + 
+  theme(axis.text.x = element_text(angle = 90, size = 12, hjust = 1), 
+        legend.position = "none") +
+  scale_fill_viridis(discrete = TRUE, option = "A") +
+  geom_bar()
+
+pieChart_calltype_dist <- ggplot(data = df) + 
+  aes(x = "", fill = CallType) + 
+  xlab("Call Types") + 
+  ylab("Proportion") + 
+  ggtitle("Proportion for Type of Calls Received") + 
+  theme_bw() + 
+  theme(axis.text.x = element_text(color = 'white'), 
+        legend.position = "bottom", 
+        legend.key.size = unit(0.6, 'cm'), #change legend key size
+        legend.key.height = unit(0.6, 'cm'), #change legend key height
+        legend.key.width = unit(0.6, 'cm'), #change legend key width
+        legend.title = element_text(size=7), #change legend title font size
+        legend.text = element_text(size=5)) +
+  scale_fill_viridis(discrete = TRUE, option = "A") +
+  geom_bar() + 
+  coord_polar(theta = "y")
+
+```
+
+```{r, fig.align='center', fig.height=15, fig.width=20, echo=FALSE}
+grid.newpage()
+
+vp_1 <- viewport(x = 0, y = 0, w = 0.5, h = 0.8,
+                 just = c("left", "bottom"))
+vp_2 <- viewport(x = 0.6, y = 0, w = 0.4, h = 0.8,
+                 just = c("left", "bottom"))
+# grid.show.viewport(vp_1)
+# grid.show.viewport(vp_2)
+
+## The first two `grid` ggplot plots are plotted as usual
+print(barPlot_calltype_dist, vp = vp_1)
+print(pieChart_calltype_dist, vp = vp_2)
+
+```
+ 
+In order to examine the distribution of the various call types present in the dataset, we decided to plot the distribution of the number of calls by their respective call type category. From the bar plot on the left, we discovered that a majority of the calls received by the San Francisco Fire Department fall under the “medical incidents” category. This is an unexpected result which contradicts the usual perception that fire departments primarily deal with fire incidents. Furthermore, the bar plot shows that the distribution of the call types are relatively sparse. The most frequent call types are “medical incident”, “structure fire”, “alarms”, and “traffic collision”. The pie chart to the right provides a better representation for the proportion of each of these call types relative to all call types made to the San Francisco Fire Department. 
+
+\newpage 
+
+\subsubsection{Distribution of Priority Type}
+
+Dialing the emergency number is often seen as a last resort by common citizens since we are often taught at a young age to dial the number when you are in real emergencies and, often, there are repercussions for those who abuse the system. However, how do the fire departments decide what to prioritize? How often are calls classified as emergencies? 
+
+```{r, include = FALSE}
+
+# We are interested in the distribution only from priority 2 or 3 since those are clearly indicated in the file
+# as emergency (3) versus non-emergency (2). 
+
+df$Priority <- factor(df$Priority)
+
+priority2or3 <- subset(df, Priority %in% c(2, 3))
+
+barPlot_call_type_priority_dist <- ggplot(data = priority2or3) + 
+  aes(CallType, fill = Priority) + 
+  xlab("Call Type") + 
+  ylab("Frequency") + 
+  ggtitle("Distribution of Call Type by Priority") + 
+  theme_bw() + 
+  theme(axis.text.x = element_text(angle = 90, size = 12, hjust = 1),
+        axis.title = element_text(size = 16),
+        legend.position = "bottom") + 
+  scale_color_viridis(discrete = TRUE, option = "D")+
+  scale_fill_viridis(discrete = TRUE) +
+  geom_bar(position = "dodge")
+
+pieChart_priority_dist <- ggplot(data = priority2or3) + 
+  aes(x = "", fill = Priority) + 
+  xlab("Priority Type") + 
+  ylab("Proportion") + 
+  ggtitle("Proportion of Priority Types for Calls Received") + 
+  theme_bw() + 
+  theme(axis.text.x = element_text(color = 'white'), 
+        legend.position = "none") +
+  scale_fill_viridis(discrete = TRUE, option = "D") +
+  geom_bar() + 
+  coord_polar(theta = "y")
+```
+
+
+```{r, fig.align='center', fig.height=15, fig.width=20, echo=FALSE}
+
+grid.newpage()
+plot.new()     ## Important: make sure the base graphics engine is initialized
+
+vp_1 <- viewport(x = 0, y = 0.1, w = 0.5, h = 0.8,
+                 just = c("left", "bottom"))
+vp_2 <- viewport(x = 0.5, y = 0.015, w = 0.5, h = 1,
+                 just = c("left", "bottom"))
+# grid.show.viewport(vp_1)
+# grid.show.viewport(vp_2)
+
+## The first two `grid` ggplot plots are plotted as usual
+print(barPlot_call_type_priority_dist, vp = vp_1)
+print(pieChart_priority_dist, vp = vp_2)
+
+```
+
+Based on the data dictionary provided, the San Francisco Fire Department classifies each call with a specific priority type: 2 for non-emergency and 3 for emergency. To further understand the proportion of each priority type, we decided to create a pie chart for the priority type distributions. From the pie chart to the right, we see that a majority of the call types are labeled as emergencies. To further dissect the distribution of priority type for each call type group, we plotted a bar graph split by priority type and call type. From the bar plot to the left, we see that most calls are classified as emergency. For medical emergencies, which accounts for the largest number of calls, there is a sizable amount of non-emergency calls. 
+
+\newpage
+
+\subsection{Frequency Check by Month}
+
+To examine the number of calls the SF Fire Department received each month on average, we created this series of graphs based on the frequency of calls each month. Here, we selected ten most frequent types of calls because they account for 98.468% of the total calls (4,750,031 out of 4,823,917 calls). This series of graphs can help us visualize the frequency of different types of calls, and through these graphs we can easily determine if there is a general trend or not. Thus, we are able to determine if in some of the months the SF Fire Department would receive more calls than other months. 
+
+```{r echo=FALSE, fig.align='center', fig.height=9, fig.width=11, warning=FALSE}
+res <- dbSendQuery(conn = dcon, "
+SELECT CallType, count(*), Priority
+FROM Fire_Department_Calls_for_Service
+GROUP BY CallType;
+")
+mydf <- dbFetch(res, -1)
+dbClearResult(res)
+sub <- head(mydf[order(mydf$`count(*)`, decreasing= T),], n = 10)
+
+new_df <- df
+
+new_df$ReceivedDtTm <- str_sub(new_df$ReceivedDtTm, 1, 10)
+new_df$received_date <- month(as.POSIXlt(new_df$ReceivedDtTm, format="%m/%d/%Y"))
+
+new_df$month <- month.name[new_df$received_date]
+
+new_df$month <- fct_relevel(new_df$month, 
+                                  levels = c("January", "February", 
+                                             "March", "April", "May", 
+                                             "June", "July", "August", 
+                                             "September", "October", 
+                                             "November", "December"))
+
+legend_title <- "Call Type"
+
+# View(new_df)
+
+new_df2 <- subset(new_df, CallType %in% sub$CallType)
+
+ggplot(data = new_df2) +
+  aes(CallType, fill = factor(CallType)) +
+  geom_bar(position = "stack") +
+  xlab("Call Type") +
+  ylab("Frequency") + 
+  ggtitle("Frequency each month") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 6)) +
+  facet_wrap(~month, scales = "free_y", ncol = 4) +
+  scale_fill_discrete(name = legend_title)
+
+
+```
+
+As shown above, the graphs all appear to follow similar patterns. The most frequent type of calls is medical incidents, and there are slightly more calls for structure fire than alarms for all 12 months. These three types of calls are the most common ones as we can see from the graphs, and the frequency of receiving these calls each month is approximately the same - except for February, where the number of medical incident calls does not exceed 250,000. Still, the ratio between each call type is very similar across different months. Thus, we conclude that there is not a specific time period that receives more calls than other time periods do, which means that the SF Fire Department deals with roughly the same amount of accidents every month, and this should be intuitive. 
+
+\newpage 
+
+\subsection{Response Time}
+
+How fast does the Fire Department respond to certain types of events? What about events that are often classified as non-emergencies? 
+
+```{r, fig.align='center', fig.height=15, fig.width=9, include = FALSE}
+
+# We observed that some of the response time columns are NA. Let's examine how many of those are in here. 
+
+table(is.na(df$ResponseDtTm))
+
+filtered_df <- filter(df, !is.na(df$ResponseDtTm))
+
+# head(filtered_df, 50)
+
+# Interested in the time it takes to respond to a Call in seconds(?)
+
+filtered_df$ReceivedDtTm <- mdy_hms(filtered_df$ReceivedDtTm)
+filtered_df$ResponseDtTm <- mdy_hms(filtered_df$ResponseDtTm)
+
+# Custom function to compute the mode (most frequent) of categorical variables
+calculate_mode <- function(x) {
+  tab <- table(x)
+  names(tab[which.max(tab)])
+}
+
+# head(filtered_df)
+prio2or3_filtered_df <- subset(filtered_df, Priority %in% c(2,3))
+# Group-by Call Type
+avg_duration_by_calls <- prio2or3_filtered_df %>%
+  mutate(ResponseDuration = as.duration(ResponseDtTm - ReceivedDtTm)) %>%
+  group_by(CallType) %>%
+  summarise(
+    avg_response_tm = mean(ResponseDuration), 
+    n = n())
+
+# avg_duration_by_calls <- subset(filtered_df, Priority %in% c(2,3))
+# head(avg_duration_by_calls)
+
+barPlot_duration_by_type <- ggplot(data = avg_duration_by_calls) + 
+  aes(x = CallType, y = avg_response_tm, fill = CallType) + 
+  xlab("Call Type") + 
+  ylab("Average Duration until Response") + 
+  ggtitle("Average Duration until Response by Call Type") + 
+  theme_bw() + 
+  theme(axis.text.x = element_text(angle = 90, size = 12, hjust = 1), 
+        legend.position = "none") +
+  geom_bar(stat = 'identity') + 
+  scale_fill_viridis(discrete = TRUE, option = "D") 
+
+# head(filtered_df)
+# prio2or3_filtered_df <- subset(filtered_df, Priority %in% c(2,3))
+# head(prio2or3_filtered_df)
+
+# Group-by Priority (2 / 3) and Call Type
+avg_duration_by_calls_prio <- prio2or3_filtered_df %>%
+  mutate(ResponseDuration = as.duration(ResponseDtTm - ReceivedDtTm)) %>%
+  group_by(CallType, Priority) %>%
+    summarise(
+      avg_response_tm = mean(ResponseDuration), 
+      n = n())
+
+# head(avg_duration_by_calls_prio)
+
+barPlot_duration_by_priority <- ggplot(data = avg_duration_by_calls_prio) + 
+  aes(x = CallType, y = avg_response_tm, fill = Priority) + 
+  xlab("Call Type") + 
+  ylab("Average Duration until Response") + 
+  ggtitle("Average Duration until Response by Call Type") + 
+  theme_bw() + 
+  theme(axis.text.x = element_text(angle = 90, size = 12, hjust = 1), 
+        legend.position = "bottom") +
+  geom_bar(stat = 'identity', position = "dodge") + 
+  scale_fill_viridis(discrete = TRUE, option = "D") 
+```
+
+```{r, fig.align='center', fig.height=9, fig.width=12, echo=FALSE}
+
+grid.newpage()
+
+vp_1 <- viewport(x = 0, y = 0, w = 0.5, h = 1,
+                 just = c("left", "bottom"))
+vp_2 <- viewport(x = 0.5, y = 0.05, w = 0.5, h = 0.95,
+                 just = c("left", "bottom"))
+# grid.show.viewport(vp_1)
+# grid.show.viewport(vp_2)
+
+## The first two `grid` ggplot plots are plotted as usual
+print(barPlot_duration_by_type, vp = vp_1)
+print(barPlot_duration_by_priority, vp = vp_2)
+
+```
+
+To better comprehend SF Fire Department’s response rate, we computed a new metric, ResponseDuration, based on the difference in timestamp for when SF Fire Department received a call and responded to a call. By plotting the call types against the average response duration for each call type on the left barplot, there is clear indication that the SF Fire Department responds to most calls relatively quickly with the exception of administrative, mutual aid, and rail incident call types. Furthermore, we also plotted a bar plot of average response time versus each call type group further subsetted by priority to examine whether certain call types experience more delay. From the plot, we conclude that it is consistent with our intuition that calls classified as non-emergency typically experience longer response durations than their emergency classified counterparts. Notably, water rescue, hazmat, and watercraft in distress benefits from significant increase in response times when classified as emergency whereas assisting police and structure fire (!) actually takes slightly longer to respond to when classified as emergencies. The reasoning behind this, however, may attribute to the preparation and equipment needed for huge structural fires. 
+
+\newpage 
+
+\section{Deeper Analysis}
+
+Now, we hope to conduct a deeper analysis on the dataset and explore the average response duration of the SF Fire Department for regions with varying minority population. An obvious method would be to tag the zip code by their respective minority percentages and perform an analysis that way. However, we must first examine whether the distribution of incident types, call time, priority type, or responding unit type may vary from ZIP code to ZIP code. 
+
+\subsection{Analysis by Zip Code}
+
+Zone Improvement Plan codes, or ZIP codes as they are commonly known, originated as a way of classifying street arrangements. Given that ZIP codes can be associated with most places of human habitation in the United States, they represent an alternative means of collecting, visualizing, and analyzing spatial information. Here, we are interested in whether the calls received by the SF Fire Department would vary by zip code. Thus we group the dataset by zip code and summarize data to produce the following plots. 
+
+```{r echo=FALSE, warning=FALSE}
+
+res <- dbSendQuery(conn = dcon, "
+SELECT City, ResponseDtTm, CallType, Priority, CallTypeGroup, UnitType, ZipcodeofIncident
+FROM Fire_Department_Calls_for_Service;
+")
+df <- dbFetch(res, -1)
+dbClearResult(res)
+#head(df)
+#str(df)
+```
+
+```{r, include = FALSE}
+SF <- df%>%
+  filter(City == "San Francisco" )
+  
+SF<- drop_na(SF)
+SF%>%
+  group_by(CallType) %>%
+  summarise(N_category = n())%>%
+  arrange(-N_category) 
+```
+
+```{r, include = FALSE}
+SF_percentage <- SF%>%
+  select(CallType,ZipcodeofIncident)%>%
+  group_by(ZipcodeofIncident)%>%
+  summarise(pct.Alarms = mean(CallType == "Alarms"),
+            pct.MI = mean(CallType == "Medical Incident"),
+            pct.Fire= mean(CallType == "Structure Fire"))
+
+
+joined_percentage <- left_join(SF_percentage,SF, by = "ZipcodeofIncident" )
+joined_percentage <- joined_percentage%>%
+  distinct(ZipcodeofIncident, .keep_all = TRUE)
+
+```
+
+```{r include=FALSE}
+SF%>%
+  count(CallTypeGroup, sort = TRUE)%>%
+  knitr::kable()
+
+```
+
+```{r echo=FALSE, warning=FALSE}
+cbPalette <-c("#CC79A7", "#D55E00", "#56B4E9", "#F0E442","#009E73", "#0072B2", "#999999", "#E69F00")
+
+plot_call_type_by_zip <- ggplot(SF, aes(x = ZipcodeofIncident, fill = CallTypeGroup)) +
+  xlab("Zip code") + ylab("Call Type Proportion") +
+  ggtitle("Fire Department Received Call Type by Zip Code") +
+  geom_bar(position = "fill" ) +
+  theme_bw() + 
+  scale_fill_manual(name = "Call Type", values=cbPalette) +
+  theme(axis.text.x =element_text(size = 12,angle=90, hjust = 1), 
+        legend.position = "bottom")
+```
+
+```{r include=FALSE}
+SF%>%
+  count(UnitType, sort = TRUE)%>%
+  knitr::kable()
+```
+
+```{r echo=FALSE, warning=FALSE}
+plot_unit_type_by_zip <- ggplot(SF, aes(x = ZipcodeofIncident, fill = UnitType))+
+  xlab("Zip code") + ylab("Unit Type Proportion")+
+  ggtitle("Fire Department Received Unit Type by Zip Code")+
+  geom_bar(position = "fill" )+
+  theme_bw() + 
+  theme(axis.text.x =element_text(size = 12,angle=90, hjust = 1), 
+        legend.position = "bottom", 
+        legend.key.size = unit(0.6, 'cm'), #change legend key size
+        legend.key.height = unit(0.6, 'cm'), #change legend key height
+        legend.key.width = unit(0.6, 'cm'), #change legend key width
+        legend.title = element_text(size=7), #change legend title font size
+        legend.text = element_text(size=5))
+```
+
+```{r, include = FALSE}
+SF%>%
+  count(Priority, sort = TRUE)
+```
+
+```{r echo=FALSE, warning=FALSE}
+plot_priority_by_zip <- ggplot(subset(SF, Priority %in% c(2, 3)), aes(x = ZipcodeofIncident, fill = as.factor(Priority)))+
+  xlab("Zip code") + ylab("Priority Proportion")+
+  ggtitle("Fire Department Received Priority by Zip Code")+
+  geom_bar(position = "fill" )+
+  scale_fill_manual(name = "Priority", values=cbPalette)+
+  theme_bw() + 
+  theme(axis.text.x =element_text(size = 12,angle=90, hjust = 1),
+        legend.position = "bottom")
+```
+
+```{r, include = FALSE}
+dateSF<- SF
+
+library(lubridate)
+
+dateSF$ResponseDtTm <- mdy_hms(dateSF$ResponseDtTm)
+
+dateSF<- drop_na(dateSF)
+
+
+breaks <- hour(hm("00:00", "6:00", "12:00", "18:00", "23:59"))
+
+labels <- c("Night", "Morning", "Afternoon", "Evening")
+
+dateSF$Time_of_day <- cut(x=hour(dateSF$ResponseDtTm), breaks = breaks, labels = labels, include.lowest=TRUE)
+
+head(dateSF)
+
+```
+
+```{r include=FALSE}
+dateSF%>%
+  count(Time_of_day, sort = TRUE) %>%
+  knitr::kable()
+```
+
+```{r echo=FALSE, warning=FALSE}
+
+plot_time_by_zip <- ggplot(dateSF, aes(x = ZipcodeofIncident, fill = Time_of_day))+
+  xlab("Zip code") + ylab("Time of Day Proportion")+
+  ggtitle("Fire Department Call Received Time by Zip Code")+
+  geom_bar(position = "fill" )+
+  scale_fill_manual(name = "Time of Day", values=cbPalette)+
+  theme_bw() + 
+  theme(axis.text.x =element_text(size = 12,angle=90, hjust = 1), 
+        legend.position = "bottom")
+```
+
+```{r, fig.align='center', fig.height=9, fig.width=12, echo=FALSE}
+
+grid.newpage()
+
+vp_1 <- viewport(x = 0, y = 0, w = 0.5, h = 0.5,
+                 just = c("left", "bottom"))
+vp_2 <- viewport(x = 0, y = 0.5, w = 0.5, h = 0.5,
+                 just = c("left", "bottom"))
+vp_3 <- viewport(x = 0.5, y = 0, w = 0.5, h = 0.5,
+                 just = c("left", "bottom"))
+vp_4 <- viewport(x = 0.5, y = 0.5, w = 0.5, h = 0.5,
+                 just = c("left", "bottom"))
+# grid.show.viewport(vp_1)
+# grid.show.viewport(vp_2)
+
+## The first two `grid` ggplot plots are plotted as usual
+print(plot_call_type_by_zip, vp = vp_1)
+print(plot_unit_type_by_zip, vp = vp_2)
+print(plot_priority_by_zip, vp = vp_3)
+print(plot_time_by_zip, vp = vp_4)
+
+```
+
+\newpage 
+
+As shown in the graphs, almost all the zip code areas share a similar pattern for the four categories (UnitType, Received Time, Call type, Priority type). The top two most frequent unit types that the SF fire department has received are Engine and Medic. However, we also notice that zip code 94129 is an outlier for all four plots. After research, we realize that the Presidio of San Francisco, a 1500-acre outdoor park and part of the Golden Gate National Recreation Area, is located at 94129, which explains why it has especially high fire type calls. For the rest of the zip codes, the most frequent call type is "Potentially Life Threatening" and "Alarm". There is no clear pattern of when the SF fire department would receive more calls throughout the day. However the afternoon (12:00 PM - 18:00 PM) and evening (18:00 PM - 23:59 PM) categories seem to have slightly higher counts. The SF fire department would receive relative the same amount of calls from different zip codes throughout the day except zip code 94129 which has a high number of calls in the afternoon. Last but not least, priority group 3 is the most frequent priority group for calls in all areas. Thus we can conclude that there is no specific correlation between zip codes and the unit type, call time, call type and priority group that the SF fire department has received. 
+
+\newpage 
+
+\subsection{Analysis by Race and Ethnicity}
+
+We are curious as to whether race plays a role in the way fire stations respond to incidents. We decide to quantify this problem by looking at the relationship between average response time for incidents and the percentage of racial minorities in regions with different zip codes. In this report, we define racial minorities as races that are not white. We do acknowledge that this might not be the most thorough way of classification. 
+
+We fail to find any free, downloadable dataset that contains information regarding racial distribution in different zip code areas in San Francisco. Therefore, we use web scraping to obtain data from ZipDataMaps (https://www.zipdatamaps.com/). We gather data about racial distribution in San Francisco by zip code from 2014, which we then use to calculate the percentages of minorities by zip code. To make our analysis more accurate, we only use the data from 2014 in our main dataset in this analysis. We focus on the average response time by zip code, a data that we obtained from calculating the time difference between columns “ReceivedDtTm” and “ResponseDtTm”. In the plot below, we used percentages of minorities by zip code for the x-axis and average response time by zip code for the y-axis. 
+
+```{r warning=FALSE, include=FALSE}
+library(XML)
+# this function gets the racial distribution in SF in 2014
+get_demo_zipcode <- function(zip) {
+  ## zip <- c(94102, 94103, 94104)
+  nzips <- length(zip)
+  demo_zip <- data.frame(matrix(nrow = length(zip))) 
+  for (i in 1:nzips) {
+    ## i = 1, zip[i] = 94102
+    zip_code = zip[i]
+    url <- paste0("https://www.zipdatamaps.com/", zip_code)
+    download.file(url, destfile = "advfn.html")
+    doc <- htmlParse("advfn.html")
+    
+    ## Add data into df
+    tmp <- getNodeSet(doc, "//td[@class='text-right']/text()") # population percentage
+    demo_zip$zip_code[i] <- zip_code
+    demo_zip$white[i] <- as.numeric(substr(as(tmp[[3]], "character"), 1, nchar(as(tmp[[3]], "character"))-1))
+    demo_zip$african_ame[i] <- as.numeric(substr(as(tmp[[4]], "character"), 1, nchar(as(tmp[[4]], "character"))-1))
+    demo_zip$hispanic[i] <- as.numeric(substr(as(tmp[[6]], "character"), 1, nchar(as(tmp[[6]], "character"))-1))
+    demo_zip$ame_indian_alaskan[i] <- as.numeric(substr(as(tmp[[7]], "character"), 1, 
+                                                        nchar(as(tmp[[7]], "character"))-1))
+    demo_zip$asian[i] <- as.numeric(substr(as(tmp[[8]], "character"), 1, nchar(as(tmp[[8]], "character"))-1))
+    demo_zip$pacific[i] <- as.numeric(substr(as(tmp[[9]], "character"), 1, nchar(as(tmp[[9]], "character"))-1))
+    demo_zip$other[i] <- as.numeric(substr(as(tmp[[10]], "character"), 1, nchar(as(tmp[[10]], "character"))-1))
+    demo_zip$two_or_more[i] <- as.numeric(substr(as(tmp[[11]], "character"), 1, nchar(as(tmp[[11]], "character"))-1))
+    free(doc)
+  }
+  subset(demo_zip, select = -c(matrix.nrow...length.zip..))
+}
+
+zipcodes <- c(94102, 94103, 94104, 94105, 94107, 94108, 94109, 94110, 94111, 94112, 
+              94114, 94115, 94116, 94117, 94118, 94121, 94122, 94123, 94124, 94127, 
+              94129, 94130, 94131, 94132, 94133, 94134, 94158)
+
+df <- get_demo_zipcode(zipcodes)
+
+# vaguely checking correctness
+# apply(df[, 2:9], 1, sum)
+
+# define all races other than white as racial minority
+df$minority <- apply(df[, 3:9], 1, sum)
+minority_df <- df[order(df$minority, decreasing = T), ]
+```
+
+```{r include=FALSE, fig.align='center', fig.height=4, fig.width=4, warning=FALSE}
+res <- dbSendQuery(conn = dcon, "
+SELECT ReceivedDtTm, ResponseDtTm, ZipcodeofIncident
+FROM Fire_Department_Calls_for_Service
+")
+mydf <- dbFetch(res, -1)
+dbClearResult(res)
+# head(mydf)
+mydf1 <- na.omit(mydf)
+# head(mydf1)
+
+mydf1$ReceivedDtTm <- mdy_hms(mydf1$ReceivedDtTm)
+mydf1$ResponseDtTm <- mdy_hms(mydf1$ResponseDtTm)
+mydf1$efficiency <- mydf1$ResponseDtTm - mydf1$ReceivedDtTm
+## mydf1$ZipcodeofIncident <- as.character(mydf1$ZipcodeofIncident)
+mydf1$Year <- as.numeric(format(mydf1$ReceivedDtTm, format = "%Y"))
+
+YR2014 <- mydf1[(mydf1$Year == 2014), ]
+mean_by_zip <- aggregate(mydf1$efficiency, list(mydf1$ZipcodeofIncident), mean)
+## mean_by_zip$Group.1 <- as.character(mean_by_zip$Group.1)
+## plot(mean_by_zip[order(mean_by_zip$x, decreasing = T),])
+mean_by_zip <- mean_by_zip[order(mean_by_zip$x, decreasing = T),]
+# mean_by_zip
+# plot(x = minority_df$minority, y = mean_by_zip$x)
+
+minority_vs_duration_df <- data.frame(MinorityPercentage = as.numeric(minority_df$minority), 
+                                      AverageResponseDuration = as.numeric(mean_by_zip$x))
+
+plot_minority_vs_duration <- ggplot(data = minority_vs_duration_df) + 
+  aes(x = MinorityPercentage, y = AverageResponseDuration) + 
+  xlab("Percentage of Minority") + 
+  ylab("Average Duration until Response (s)") + 
+  ggtitle("Average Duration until Response vs. Percentage of Minority Group") + 
+  theme_bw() + 
+  theme(plot.title = element_text(size = 8), 
+        axis.text.x = element_text(size = 6, hjust = 1),
+        axis.title = element_text(size = 9)) + 
+  geom_point(color = "violet") + 
+  geom_smooth(method = "loess", formula = y ~ x)
+```
+
+```{r, fig.align='center', fig.height=4, fig.width=4, warning=FALSE, echo = FALSE}
+plot_minority_vs_duration
+```
+
+This graph shows that there is a non-linear positive correlation between percentages of minorities in a zip code area and the average response time of incidents in that area. At a first glance, it seems evident that the San Francisco fire department discriminates towards racial minorities. A linear regression model in the form of $$y_i = 245.25 + 142.87x_i + 102.52x_i^2$$ where $x_i$ represents the minority percentage and $y_i$ represents the average response time of incidents in the area displays the summary results below, indicating that minority percentage is a statistically significant indicator for the duration of response time. 
+
+```{r, echo = FALSE}
+fit <- lm(data = minority_vs_duration_df, formula = AverageResponseDuration ~ poly(MinorityPercentage, 2))
+summ(fit)
+
+par(mfrow = c(2, 2), oma = c(0, 0, 2, 0))
+plot(fit, qqline = TRUE, sub.caption = "LM on Average Duration until Response by Minority Percentage")
+```
+
+However, we also recognize that there might be many other factors contributing to this. Our first question is whether the same positive correlation holds across all call types. The graph below builds on top of the previous graph by identifying the average response time by zip code for each call type. 
+
+\newpage 
+
+```{r include=FALSE, fig.align='center', fig.height=6, fig.width=8, warning=FALSE}
+
+res <- dbSendQuery(conn = dcon, "
+SELECT ReceivedDtTm, ResponseDtTm, ZipcodeofIncident, CallType
+FROM Fire_Department_Calls_for_Service
+")
+mydf <- dbFetch(res, -1)
+dbClearResult(res)
+#head(mydf)
+mydf1 <- na.omit(mydf)
+# head(mydf1)
+mydf1 <- subset(mydf1, CallType %in% sub$CallType)
+#head(mydf1)
+
+mydf1$ReceivedDtTm <- mdy_hms(mydf1$ReceivedDtTm)
+mydf1$ResponseDtTm <- mdy_hms(mydf1$ResponseDtTm)
+mydf1$efficiency <- mydf1$ResponseDtTm - mydf1$ReceivedDtTm
+## mydf1$ZipcodeofIncident <- as.character(mydf1$ZipcodeofIncident)
+mydf1$Year <- as.numeric(format(mydf1$ReceivedDtTm, format = "%Y"))
+
+YR2014 <- mydf1[(mydf1$Year == 2014), ]
+
+avg_response_by_minority_and_calltype <- mydf1 %>% 
+  group_by(CallType, ZipcodeofIncident) %>%
+  summarise(
+    avg_response_duration = as.numeric(mean(efficiency))
+  )
+
+
+# Tag the avg_response_by_minority_and_calltype
+n <- nrow(avg_response_by_minority_and_calltype)
+minority_col <- rep(NA, n)
+for (index in c(1:n)){
+  zipcode <- as.numeric(avg_response_by_minority_and_calltype$ZipcodeofIncident[index])
+  minority_col[index] <- subset(minority_df, zip_code == zipcode)$minority
+}
+
+avg_response_by_minority_and_calltype <- cbind(avg_response_by_minority_and_calltype, minority_col)
+avg_response_by_minority_and_calltype <- rename(avg_response_by_minority_and_calltype, minority_percentage = ...4)
+
+## mean_by_zip <- aggregate(mydf1$efficiency, list(mydf1$ZipcodeofIncident), mean)
+## mean_by_zip$Group.1 <- as.character(mean_by_zip$Group.1)
+## plot(mean_by_zip[order(mean_by_zip$x, decreasing = T),])
+## mean_by_zip <- mean_by_zip[order(mean_by_zip$x, decreasing = T),]
+## mean_by_zip$x <- as.numeric(mean_by_zip$x)
+
+#head(avg_response_by_minority_and_calltype)
+
+plot_avg_response_by_min_and_call <- ggplot(data = avg_response_by_minority_and_calltype) + 
+  aes(x = minority_percentage, y = avg_response_duration, color = CallType) + 
+  xlab("Percentage of Minority") + 
+  ylab("Average Duration until Response (s)") + 
+  ggtitle("Average Duration until Response vs. Percentage of Minority Group") + 
+  theme_bw() + 
+  geom_line()
+```
+
+```{r, fig.align='center', fig.height=6, fig.width=8, warning=FALSE, echo = FALSE}
+plot_avg_response_by_min_and_call
+```
+
+As we break down the average response time by call type, there is no clear positive correlation between percentages of racial minorities and the average response time. This can also be backed with a ANOVA test performed below. 
+
+```{r warning=FALSE, fig.align='center', fig.height=9, fig.width=9, echo = FALSE}
+fit_with_calls <- lm(data = avg_response_by_minority_and_calltype, 
+          formula = avg_response_duration ~ minority_percentage + CallType)
+
+
+anova.fit.with.calls <- anova(fit_with_calls)[,c("Sum Sq", "Df", "Mean Sq", "F value", "Pr(>F)")]
+names(anova.fit.with.calls) <- c("SS", "df", "MS", "F", "P_val")
+total_cols <- colSums(anova.fit.with.calls)
+nice.anova.table <- as.data.frame(rbind(anova.fit.with.calls, total_cols), 
+                      row.names = c("Minority Percentage", "Call Type", "Error", "Total"))
+
+options(knitr.kable.NA = '') # suppress showing NA values in table
+kable(nice.anova.table, format = "pandoc",  
+      caption = "ANOVA Table for Average Response Time by Minority Percentage and Call Type",
+      digits = c(3, 0, 4, 2, 3), align = "rrrrr") %>%
+  kable_styling(position = "left")
+
+# par(mfrow = c(2, 2), oma = c(0, 0, 2, 0))
+# plot(fit_with_calls, qqline = TRUE)
+
+```
+
+In the ANOVA test results above, it is apparent that when call type is included as an additional variable, minority percentage ceases to be statistically significant (p-value > 0.05). Still, we cannot rule out the correlation between minority percentage and response duration since the lack of strong relationship may attribute to the fact that our data only comes from the year 2014, as a result supplying a limiting sample size. A further analysis with data across various years may be able to advance our discovery further. 
+
+\newpage 
+
+\section{Conclusion}
+
+In conclusion, our data analysis debunks the urban myth that fire fighters primarily engage in fire rescue. While it is likely true that the firefighters remain the first department one should dial when dealing with bursting flames, the data clearly demonstrates that firefighters most often respond to medical incidents rather than structure fires. This is not a surprising result considering the fact that medical incidents probably occur more often than buildings on fire, however, the question remains as to why these medical incidents are directed to the fire department rather than the EMS. 
+
+Furthermore, our analysis on frequency of calls across months shows that the pattern of calls received by firefighters remain relatively stable across the months, with no notable spike in the summer time despite the data being collected from California, a location notorious for their frequent incidents of wild fires. The general response time analysis also provides us with better understanding for which incidents typically require longer time to properly respond to on average, providing us an understanding of incidents that are perhaps less urgent or harder to combat. 
+
+Lastly, the most interesting discovery may be related to the change in average response duration between call receival and call response with respect to an increase in minority percentage of a zip code. To better understand whether there are latent factors to our most interested question, we plotted various proportions of call types, priority groups, incident report times against the zip code and discovered that these factors remain relatively consistent for all zip codes. With that in mind, our analysis led us to a shocking discovery that there appears to be a strong positive correlation between the percentage of minority population at a region and the time it takes the fire department to properly address the calls. This is a shocking result since it may indicate an innate favortism towards the racial majority within the fire department system, similarily to how incidents of racial profiling by the police department enraged our nation in the past year. However, our further analysis with call type group included suggests that there remain plenty of variability for the positive correlation we observe, and that further analysis is necessary to truly understand whether there exists racial bias within the San Francisco Fire Department. 
